@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
+	pb "ml-raft-control-plane/pkg/proto"
+
 	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
-	pb "github.com/yourusername/ml-raft-control-plane/pkg/proto"
 )
 
 // setupFSM creates a new FSM for testing

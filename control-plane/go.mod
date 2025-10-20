@@ -1,4 +1,4 @@
-module github.com/yourusername/ml-raft-control-plane
+module ml-raft-control-plane
 
 go 1.24.0
 
