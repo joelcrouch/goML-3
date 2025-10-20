@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package raftpb;
+
+option go_package = "github.com/yourusername/ml-raft-control-plane/pkg/proto";
+
+// Task represents a computational task in the system
+message Task {
+  string task_id = 1;
+  string task_type = 2;  // "matmul", "ingestion", "processing", etc.
+  TaskStatus status = 3;
+  string assigned_node_id = 4;
+  bytes task_data = 5;  // JSON-encoded task parameters
+  int64 created_at = 6;
+  int64 started_at = 7;
+  int64 completed_at = 8;
+  string result_data = 9;  // JSON-encoded results
+}
+
+enum TaskStatus {
+  PENDING = 0;
+  ASSIGNED = 1;
+  RUNNING = 2;
+  COMPLETED = 3;
+  FAILED = 4;
+}
+
+// Node represents a worker node in the cluster
+message Node {
+  string node_id = 1;
+  string address = 2;
+  string cloud_provider = 3;
+  string region = 4;
+  NodeStatus status = 5;
+  int64 last_heartbeat = 6;
+  double cpu_usage = 7;
+  double memory_usage = 8;
+  int32 active_tasks = 9;
+}
+
+enum NodeStatus {
+  HEALTHY = 0;
+  UNHEALTHY = 1;
+  UNKNOWN = 2;
+}
+
+// RPC Services
+
+// TaskService handles task submission and queries
+service TaskService {
+  rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+}
+
+message SubmitTaskRequest {
+  string task_type = 1;
+  bytes task_data = 2;
+}
+
+message SubmitTaskResponse {
+  string task_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+message GetTaskResponse {
+  Task task = 1;
+  bool found = 2;
+}
+
+message ListTasksRequest {
+  TaskStatus status_filter = 1;  // Optional filter
+  int32 limit = 2;
+}
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+}
+
+// NodeService handles node heartbeats and task assignments
+service NodeService {
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc PollTask(PollTaskRequest) returns (PollTaskResponse);
+  rpc ReportTaskResult(ReportTaskResultRequest) returns (ReportTaskResultResponse);
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  double cpu_usage = 2;
+  double memory_usage = 3;
+  int32 active_tasks = 4;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  string leader_address = 2;  // Redirect to leader if not leader
+}
+
+message PollTaskRequest {
+  string node_id = 1;
+}
+
+message PollTaskResponse {
+  Task task = 1;
+  bool has_task = 2;
+}
+
+message ReportTaskResultRequest {
+  string task_id = 1;
+  TaskStatus final_status = 2;
+  string result_data = 3;
+}
+
+message ReportTaskResultResponse {
+  bool acknowledged = 1;
+}
