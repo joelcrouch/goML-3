@@ -173,6 +173,25 @@ Establish a working Raft consensus cluster across 5 nodes (3 AWS, 2 GCP) that ca
 - Log persistence (BoltDB backend)
 - Network transport (TCP via gRPC)
 
+feat(control-plane): Implement Raft FSM, cluster logic, and unit tests
+
+This commit implements the core logic for the Raft-based control plane, covering the majority of Story 1.2 (Part 2). It includes the Raft finite state machine (FSM), cluster management, log entry definitions, and configuration handling.
+
+Key implementations:
+
+Raft FSM (fsm.go): The state machine that applies committed log entries to the Task Manifest. It includes Apply, Snapshot, and Restore methods.
+
+Log Entries (log_entry.go): Defines the serializable operations that can be committed to the Raft log (e.g., AddTask, AssignTask, NodeHeartbeat).
+
+Cluster Management (cluster.go): A wrapper around the HashiCorp Raft library to initialize the cluster, handle bootstrapping, and manage node lifecycle.
+
+Configuration (config.go): Provides logic for loading node and cluster configuration from a JSON file.
+
+Unit Tests (fsm_test.go): Adds a comprehensive test suite for the FSM, which is currently passing except for one known issue.
+
+Note: The TestFSM_Apply_CompleteTask test is currently failing due to an issue with JSON data comparison. This will be addressed in the next commit.
+
+
 **Story 1.3: Task Manifest FSM** (5 points)
 - Finite state machine for task state
 - Log entry types (AddTask, AssignTask, CompleteTask, NodeHeartbeat)
