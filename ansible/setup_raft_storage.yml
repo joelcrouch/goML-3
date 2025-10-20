@@ -1,0 +1,46 @@
+---
+# File: ansible/setup_raft_storage.yml
+# Goal: Create persistent storage directories for Raft logs, snapshots, and BoltDB
+
+- name: Setup Raft Persistent Storage
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  vars:
+    raft_data_dir: /var/lib/raft
+    raft_logs_dir: "{{ raft_data_dir }}/logs"
+    raft_snapshots_dir: "{{ raft_data_dir }}/snapshots"
+    raft_boltdb_dir: "{{ raft_data_dir }}/boltdb"
+    raft_user: "{{ 'ec2-user' if ansible_distribution == 'Amazon' else gcp_user_name }}"
+
+  tasks:
+    - name: Create Raft data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ raft_user }}"
+        group: "{{ raft_user }}"
+        mode: '0755'
+      loop:
+        - "{{ raft_data_dir }}"
+        - "{{ raft_logs_dir }}"
+        - "{{ raft_snapshots_dir }}"
+        - "{{ raft_boltdb_dir }}"
+
+    - name: Create Raft configuration directory
+      ansible.builtin.file:
+        path: /etc/raft
+        state: directory
+        owner: "{{ raft_user }}"
+        group: "{{ raft_user }}"
+        mode: '0755'
+
+    - name: Verify storage setup
+      ansible.builtin.command: ls -la {{ raft_data_dir }}
+      register: storage_status
+      changed_when: false
+
+    - name: Display storage structure
+      ansible.builtin.debug:
+        msg: "Raft storage setup complete: {{ storage_status.stdout_lines }}"
