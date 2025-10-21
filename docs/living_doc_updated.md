@@ -1,10 +1,9 @@
 # Multi-Cloud ML Training Orchestration System - Living Document
 
-**Last Updated**: 2025-01-18
-**Current Branch**: `main` (preparing architecture pivot)
-**Current Sprint**: Sprint 2 Complete → **Pivoting to Raft-Based Architecture**
-**Project Status**: 🔄 Architecture pivot in progress - rebuilding with production-grade fault tolerance
-
+**Last Updated**: 2025-10-20
+**Current Branch**: `eature/raft-task-api` (preparing clientapi)
+**Current Sprint**: sprint 1.3 after the pivot to new go/raft archtitecture
+**Project Status**: starting on lst item in sprtin1.3 -client api
 ---
 
 ## 🚨 MAJOR ARCHITECTURE PIVOT (January 2025)
@@ -157,17 +156,17 @@ After completing Sprint 2 with a working 4-stage pipeline (81% test coverage, 61
 **Documentation**: `docs/sprint1_raft_detailed_plan.md`
 
 #### Goal
-Establish a working Raft consensus cluster across 5 nodes (3 AWS, 2 GCP) that can survive Leader failures while maintaining a consistent Global Task Manifest.
+Establish a working Raft consensus cluster across 6 nodes (3 AWS, 3 GCP) that can survive Leader failures while maintaining a consistent Global Task Manifest.
 
 #### What Will Be Built:
 
-**Story 1.1: Multi-Cloud Infrastructure** (8 points)
-- Terraform/Ansible deployment for 5 VMs (3 AWS EC2, 2 GCP Compute)
+✅ **Story 1.1: Multi-Cloud Infrastructure** (8 points)  
+- Terraform/Ansible deployment for 5 VMs (3 AWS EC2, 3 GCP Compute)
 - Cross-cloud VPC peering or VPN tunnel
 - Go runtime + Python 3.11+ on all nodes
 - Persistent storage for Raft logs
 
-**Story 1.2: Raft Cluster Implementation** (8 points)
+✅ **Story 1.2: Raft Cluster Implementation** (8 points)
 - HashiCorp Raft library integration
 - Leader election and state transitions
 - Log persistence (BoltDB backend)
@@ -257,7 +256,7 @@ This comprehensive set of changes establishes a stable and verified foundation f
 - Finite state machine for task state
 - Log entry types (AddTask, AssignTask, CompleteTask, NodeHeartbeat)
 - Snapshot and restore functionality
-- Client API for task submission
+- Client API for task submission  <<---NOT DONE, lat bit.  where we are curretnlyl
 
 **Story 1.4: Python Node Agent** (5 points)
 - Heartbeat to Raft Leader every 5 seconds
@@ -266,7 +265,7 @@ This comprehensive set of changes establishes a stable and verified foundation f
 - gRPC client implementation
 
 #### Deliverables:
-- ✅ 5-node Raft cluster operational
+- ✅ 6-node Raft cluster operational
 - ✅ Leader election in <10 seconds
 - ✅ Automatic Leader failover (<5s)
 - ✅ Consistent Task Manifest across nodes
@@ -306,7 +305,7 @@ This comprehensive set of changes establishes a stable and verified foundation f
 - ✅ End-to-end pipeline flow through Raft
 - ✅ Pipeline survives Leader failure
 - ✅ Task assignment and completion tracking
-- ✅ Performance comparable to original implementation
+- ✅ Performance comparable to original implementation  <<--kinda irrelevant. the previosu iteration was deeply flwed.
 
 ---
 
@@ -473,7 +472,7 @@ def run_matrix_multiplication(matrix_size: int):
 
 ---
 
-## Current Test Coverage (Pre-Pivot)
+<!-- ## Current Test Coverage (Pre-Pivot)
 
 ### Sprint 2 Achievement
 - **Total Tests**: 61/61 passing
@@ -494,7 +493,7 @@ monitoring/pipeline_logger.py         112      23      79%
 monitoring/status_dashboard.py        140      39      72%
 ─────────────────────────────────────────────────────────────
 Total                                1571     299      81%
-```
+``` -->
 
 ### New Testing Approach (Post-Pivot)
 
