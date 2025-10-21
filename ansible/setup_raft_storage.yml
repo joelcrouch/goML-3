@@ -1,7 +1,7 @@
 ---
 # File: ansible/setup_raft_storage.yml
 # Goal: Create persistent storage directories for Raft logs, snapshots, and BoltDB
-
+#DONT CAPITLALIZE RAFT ANYWHERE DING DONG
 - name: Setup Raft Persistent Storage
   hosts: all
   gather_facts: yes
@@ -12,7 +12,7 @@
     raft_logs_dir: "{{ raft_data_dir }}/logs"
     raft_snapshots_dir: "{{ raft_data_dir }}/snapshots"
     raft_boltdb_dir: "{{ raft_data_dir }}/boltdb"
-    raft_user: "{{ 'ec2-user' if ansible_distribution == 'Amazon' else gcp_user_name }}"
+    raft_user: "{{ ansible_user }}"
 
   tasks:
     - name: Create Raft data directories
@@ -44,3 +44,4 @@
     - name: Display storage structure
       ansible.builtin.debug:
         msg: "Raft storage setup complete: {{ storage_status.stdout_lines }}"
+        
