@@ -11,7 +11,7 @@ variable "key_name" {
 variable "project_repo" {
   description = "GitHub repository for your project (used for initial git clone)"
   type        = string
-  default     = "https://github.com/joelcrouch/MultiCLoudTestsingSystem"
+  default     = "https://github.com/joelcrouch/goML-3"
 }
 
 variable "app_port" {
@@ -55,7 +55,7 @@ variable "aws_security_group_name" {
 variable "gcp_project_id" {
   description = "The ID of the GCP project"
   type        = string
-  default     = "my-gcp-project-2025" # CRITICAL: REPLACE WITH YOUR ACTUAL PROJECT ID
+  default     = "norse-ward-472620-r0" # CRITICAL: REPLACE WITH YOUR ACTUAL PROJECT ID
 }
 
 variable "gcp_region" {
@@ -91,5 +91,5 @@ variable "gcp_firewall_name" {
 variable "gcp_user_name" {
   description = "The primary Linux user name on the GCP instance (e.g., your OS login name, for SSH and git clone)"
   type        = string
-  default     = "yourusername" # CRITICAL: REPLACE WITH YOUR ACTUAL LINUX USERNAME
+  default     = "joelcrouch" # CRITICAL: REPLACE WITH YOUR ACTUAL LINUX USERNAME
 }

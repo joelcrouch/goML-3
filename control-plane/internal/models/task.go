@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	pb "github.com/yourusername/ml-raft-control-plane/pkg/proto"
+	pb "ml-raft-control-plane/pkg/proto"
 )
 
 // TaskManifest represents the global state of all tasks (FSM state)

@@ -1,0 +1,110 @@
+# ============================================================
+# Terraform
+# ============================================================
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+.terraform.lock.hcl # Keep this if you want to lock provider versions
+# If you want to ignore all .tfvars files, use *.tfvars
+# If you have a specific terraform.tfvars you want to ignore, list it:
+# terraform.tfvars
+
+# Terraform-generated files / logs
+*.log
+*.out
+*.json
+inventory.ini
+apply.txt
+eodSummary.txt
+docs/prompt1.2.txt
+terraform/gemini10_20.txt
+
+# ============================================================
+# Go
+# ============================================================
+# Build binaries and test output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace and cache
+vendor/
+bin/
+build/
+dist/
+coverage/
+*.coverprofile
+
+# GoLand / VSCode IDE
+.idea/
+.vscode/
+*.iml
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing / coverage
+.coverage
+*.cover
+coverage.xml
+htmlcov/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# ============================================================
+# Ansible
+# ============================================================
+.retry
+*.retry
+*.tmp
+*.bak
+*.orig
+
+# Ansible inventories or temporary files
+inventory.ini
+*.vault-pass
+*.retry
+*.yml~
+
+# ============================================================
+# Logs, temp files, and OS-specific
+# ============================================================
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+*.DS_Store
+Thumbs.db
+
+# ============================================================
+# Project-specific
+# ============================================================
+# Any temporary artifacts or generated documentation
+docs/generated/
+output/
+notes/
+tmp/

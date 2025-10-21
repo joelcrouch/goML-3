@@ -1,0 +1,398 @@
+# Context
+Reference docs/living_document.md (updated 2025-01-18) for architecture pivot details. and terraform/
+You have completed Terraform infrastructure deployment with 5 nodes (3 AWS t4g.small ARM, 2 GCP e2-medium AMD64).
+
+# Task: Finalize Multi-Cloud Infrastructure Setup (Story 1.1)
+Complete infrastructure provisioning and verify cross-cloud connectivity for Raft cluster deployment.
+
+## Current State
+
+**Infrastructure Deployed**:
+- ✅ 3 AWS EC2 instances (t4g.small, ARM64, Amazon Linux 2)
+- ✅ 2 GCP Compute instances (e2-medium, AMD64, Debian 11)
+- ✅ Security groups/firewalls configured (SSH port 22, App port 8080)
+- ✅ Ansible inventory generated (inventory.ini)
+- ✅ Go 1.21.0 installed on all nodes via setup.yml
+
+**Terraform Outputs Available**:
+```bash
+# AWS instance IPs
+terraform output aws_instance_public_ips
+
+# GCP instance IPs
+terraform output gcp_instance_public_ips
+```
+
+## Requirements from Story 1.1 (8 points)
+
+### Remaining Tasks
+
+#### 1. Verify Cross-Cloud Connectivity
+Create verification script to test network connectivity between all node pairs.
+
+**File**: `scripts/verify_connectivity.sh`
+```bash
+#!/bin/bash
+# Verify cross-cloud connectivity for Raft cluster
+
+INVENTORY_FILE="inventory.ini"
+SSH_KEY="~/.ssh/${KEY_NAME}.pem"
+
+echo "=== Cross-Cloud Connectivity Verification ==="
+echo ""
+
+# Extract IPs from inventory
+AWS_IPS=$(awk '/^\[aws\]/,/^\[/ {if ($0 !~ /^\[/ && $0 !~ /^$/) print $0}' $INVENTORY_FILE)
+GCP_IPS=$(awk '/^\[gcp\]/,/^\[/ {if ($0 !~ /^\[/ && $0 !~ /^$/) print $0}' $INVENTORY_FILE)
+
+ALL_IPS="$AWS_IPS $GCP_IPS"
+
+echo "Testing connectivity from each node to all others..."
+echo ""
+
+for source_ip in $ALL_IPS; do
+    # Determine SSH user based on IP
+    if echo "$AWS_IPS" | grep -q "$source_ip"; then
+        SSH_USER="ec2-user"
+    else
+        SSH_USER="${GCP_USER_NAME}"
+    fi
+    
+    echo "--- Testing from $source_ip ($SSH_USER) ---"
+    
+    for target_ip in $ALL_IPS; do
+        if [ "$source_ip" = "$target_ip" ]; then
+            continue
+        fi
+        
+        # Test ping (ICMP)
+        ssh -i $SSH_KEY -o StrictHostKeyChecking=no $SSH_USER@$source_ip \
+            "ping -c 3 -W 2 $target_ip > /dev/null 2>&1 && echo '✅ PING $target_ip' || echo '❌ PING $target_ip'"
+        
+        # Test TCP connection to app port (8080)
+        ssh -i $SSH_KEY -o StrictHostKeyChecking=no $SSH_USER@$source_ip \
+            "timeout 5 bash -c 'cat < /dev/null > /dev/tcp/$target_ip/8080' 2>/dev/null && echo '✅ TCP $target_ip:8080' || echo '⚠️  TCP $target_ip:8080 (no listener yet)'"
+    done
+    echo ""
+done
+
+echo "=== Connectivity Test Complete ==="
+```
+
+**Testing**:
+```bash
+chmod +x scripts/verify_connectivity.sh
+./scripts/verify_connectivity.sh
+```
+
+**Expected Output**:
+- ✅ All PING tests succeed (latency <100ms cross-cloud, <10ms intra-cloud)
+- ⚠️ TCP tests show "no listener" (expected - Raft not running yet)
+
+---
+
+#### 2. Setup Persistent Storage for Raft Logs
+
+Create Ansible playbook to setup persistent directories for Raft state.
+
+**File**: `ansible/setup_raft_storage.yml`
+```yaml
+---
+# File: ansible/setup_raft_storage.yml
+# Goal: Create persistent storage directories for Raft logs, snapshots, and BoltDB
+
+- name: Setup Raft Persistent Storage
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    raft_data_dir: /var/lib/raft
+    raft_logs_dir: "{{ raft_data_dir }}/logs"
+    raft_snapshots_dir: "{{ raft_data_dir }}/snapshots"
+    raft_boltdb_dir: "{{ raft_data_dir }}/boltdb"
+    raft_user: "{{ 'ec2-user' if ansible_distribution == 'Amazon' else gcp_user_name }}"
+    
+  tasks:
+    - name: Create Raft data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ raft_user }}"
+        group: "{{ raft_user }}"
+        mode: '0755'
+      loop:
+        - "{{ raft_data_dir }}"
+        - "{{ raft_logs_dir }}"
+        - "{{ raft_snapshots_dir }}"
+        - "{{ raft_boltdb_dir }}"
+    
+    - name: Create Raft configuration directory
+      ansible.builtin.file:
+        path: /etc/raft
+        state: directory
+        owner: "{{ raft_user }}"
+        group: "{{ raft_user }}"
+        mode: '0755'
+    
+    - name: Verify storage setup
+      ansible.builtin.command: ls -la {{ raft_data_dir }}
+      register: storage_status
+      changed_when: false
+    
+    - name: Display storage structure
+      ansible.builtin.debug:
+        msg: "Raft storage setup complete: {{ storage_status.stdout_lines }}"
+```
+
+**Run playbook**:
+```bash
+ansible-playbook -i inventory.ini ansible/setup_raft_storage.yml
+```
+
+---
+
+#### 3. Configure Node Metadata
+
+Create configuration files for each node with metadata (node ID, cloud provider, peers).
+
+**File**: `scripts/generate_node_configs.py`
+```python
+#!/usr/bin/env python3
+"""
+Generate Raft node configuration files for each instance.
+Reads Terraform outputs and creates node-specific configs.
+"""
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+def get_terraform_outputs():
+    """Read Terraform outputs"""
+    result = subprocess.run(
+        ["terraform", "output", "-json"],
+        capture_output=True,
+        text=True,
+        cwd="terraform"  # Adjust if Terraform is in different directory
+    )
+    
+    if result.returncode != 0:
+        print(f"Error reading Terraform outputs: {result.stderr}")
+        sys.exit(1)
+    
+    return json.loads(result.stdout)
+
+def generate_node_config(node_id, ip_address, cloud_provider, all_peer_ips, app_port=8080):
+    """Generate configuration for a single node"""
+    
+    # Remove self from peers
+    peers = [f"{peer_ip}:{app_port}" for peer_ip in all_peer_ips if peer_ip != ip_address]
+    
+    config = {
+        "node_id": node_id,
+        "bind_address": f"{ip_address}:{app_port}",
+        "advertise_address": f"{ip_address}:{app_port}",
+        "cloud_provider": cloud_provider,
+        "region": "us-east-1" if cloud_provider == "aws" else "us-central1",
+        "data_dir": "/var/lib/raft",
+        "bootstrap_expect": 5,  # Total nodes in cluster
+        "peers": peers,
+        "raft": {
+            "heartbeat_timeout": "1s",
+            "election_timeout": "3s",
+            "commit_timeout": "500ms",
+            "snapshot_interval": "120s",
+            "snapshot_threshold": 8192
+        },
+        "grpc": {
+            "port": 50051,
+            "max_concurrent_streams": 1000
+        }
+    }
+    
+    return config
+
+def main():
+    outputs = get_terraform_outputs()
+    
+    aws_ips = outputs['aws_instance_public_ips']['value']
+    gcp_ips = outputs['gcp_instance_public_ips']['value']
+    
+    all_ips = aws_ips + gcp_ips
+    
+    # Create configs directory
+    config_dir = Path("config/nodes")
+    config_dir.mkdir(parents=True, exist_ok=True)
+    
+    configs = []
+    
+    # Generate AWS node configs
+    for i, ip in enumerate(aws_ips, start=1):
+        node_id = f"aws-node-{i}"
+        config = generate_node_config(node_id, ip, "aws", all_ips)
+        
+        config_file = config_dir / f"{node_id}.json"
+        with open(config_file, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        configs.append((node_id, ip, "ec2-user", config_file))
+        print(f"✅ Generated {config_file}")
+    
+    # Generate GCP node configs
+    for i, ip in enumerate(gcp_ips, start=1):
+        node_id = f"gcp-node-{i}"
+        config = generate_node_config(node_id, ip, "gcp", all_ips)
+        
+        config_file = config_dir / f"{node_id}.json"
+        with open(config_file, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        configs.append((node_id, ip, "YOUR_GCP_USER", config_file))
+        print(f"✅ Generated {config_file}")
+    
+    # Generate deployment script
+    deploy_script = Path("scripts/deploy_configs.sh")
+    with open(deploy_script, 'w') as f:
+        f.write("#!/bin/bash\n")
+        f.write("# Deploy node configurations to instances\n\n")
+        f.write("set -e\n\n")
+        
+        for node_id, ip, ssh_user, config_file in configs:
+            f.write(f"echo 'Deploying config to {node_id} ({ip})...'\n")
+            f.write(f"scp -i ~/.ssh/${{KEY_NAME}}.pem -o StrictHostKeyChecking=no \\\n")
+            f.write(f"    {config_file} {ssh_user}@{ip}:/tmp/node_config.json\n")
+            f.write(f"ssh -i ~/.ssh/${{KEY_NAME}}.pem -o StrictHostKeyChecking=no \\\n")
+            f.write(f"    {ssh_user}@{ip} 'sudo mv /tmp/node_config.json /etc/raft/config.json'\n")
+            f.write(f"echo '✅ {node_id} configured'\n\n")
+        
+        f.write("echo '=== All nodes configured ==='\n")
+    
+    deploy_script.chmod(0o755)
+    print(f"\n✅ Generated deployment script: {deploy_script}")
+    print(f"\nRun: ./{deploy_script}")
+
+if __name__ == "__main__":
+    main()
+```
+
+**Run configuration generation**:
+```bash
+python3 scripts/generate_node_configs.py
+./scripts/deploy_configs.sh
+```
+
+---
+
+#### 4. Network Latency Baseline Measurement
+
+Create script to measure and document baseline latency between all node pairs.
+
+**File**: `scripts/measure_latency.sh`
+```bash
+#!/bin/bash
+# Measure baseline network latency between all nodes
+
+INVENTORY_FILE="inventory.ini"
+OUTPUT_FILE="docs/baseline_latency.md"
+
+echo "# Baseline Network Latency Measurements" > $OUTPUT_FILE
+echo "" >> $OUTPUT_FILE
+echo "**Measured**: $(date)" >> $OUTPUT_FILE
+echo "" >> $OUTPUT_FILE
+echo "## Latency Matrix (ms)" >> $OUTPUT_FILE
+echo "" >> $OUTPUT_FILE
+
+# Extract IPs
+AWS_IPS=$(awk '/^\[aws\]/,/^\[/ {if ($0 !~ /^\[/ && $0 !~ /^$/) print $0}' $INVENTORY_FILE)
+GCP_IPS=$(awk '/^\[gcp\]/,/^\[/ {if ($0 !~ /^\[/ && $0 !~ /^$/) print $0}' $INVENTORY_FILE)
+
+ALL_IPS=($AWS_IPS $GCP_IPS)
+NODE_NAMES=("aws-1" "aws-2" "aws-3" "gcp-1" "gcp-2")
+
+# Table header
+echo "| From \\ To | ${NODE_NAMES[@]} |" >> $OUTPUT_FILE
+echo "|-----------|" >> $OUTPUT_FILE
+for name in "${NODE_NAMES[@]}"; do
+    echo -n "-----------|" >> $OUTPUT_FILE
+done
+echo "" >> $OUTPUT_FILE
+
+# Measure latencies
+for i in "${!ALL_IPS[@]}"; do
+    source_ip="${ALL_IPS[$i]}"
+    source_name="${NODE_NAMES[$i]}"
+    
+    # Determine SSH user
+    if [[ $source_name == aws-* ]]; then
+        SSH_USER="ec2-user"
+    else
+        SSH_USER="${GCP_USER_NAME}"
+    fi
+    
+    echo -n "| **$source_name** |" >> $OUTPUT_FILE
+    
+    for target_ip in "${ALL_IPS[@]}"; do
+        if [ "$source_ip" = "$target_ip" ]; then
+            echo -n " - |" >> $OUTPUT_FILE
+        else
+            # Measure average latency over 10 pings
+            latency=$(ssh -i ~/.ssh/${KEY_NAME}.pem -o StrictHostKeyChecking=no \
+                $SSH_USER@$source_ip \
+                "ping -c 10 -q $target_ip | grep 'rtt' | cut -d'/' -f5")
+            
+            echo -n " ${latency}ms |" >> $OUTPUT_FILE
+        fi
+    done
+    echo "" >> $OUTPUT_FILE
+done
+
+echo "" >> $OUTPUT_FILE
+echo "## Analysis" >> $OUTPUT_FILE
+echo "" >> $OUTPUT_FILE
+echo "- **Intra-cloud (AWS-AWS)**: Expected <5ms" >> $OUTPUT_FILE
+echo "- **Intra-cloud (GCP-GCP)**: Expected <5ms" >> $OUTPUT_FILE
+echo "- **Cross-cloud (AWS-GCP)**: Expected 50-100ms" >> $OUTPUT_FILE
+
+echo "✅ Latency measurements saved to $OUTPUT_FILE"
+cat $OUTPUT_FILE
+```
+
+**Run measurement**:
+```bash
+chmod +x scripts/measure_latency.sh
+./scripts/measure_latency.sh
+```
+
+---
+
+## Acceptance Criteria Validation
+
+**Story 1.1 Complete Checklist**:
+- [ ] ✅ 5 nodes deployed (3 AWS, 2 GCP)
+- [ ] ✅ Go 1.21.0 installed on all nodes
+- [ ] ✅ Cross-cloud connectivity verified (ping <100ms)
+- [ ] ✅ Persistent storage directories created
+- [ ] ✅ Node configurations generated and deployed
+- [ ] ✅ Baseline latency documented
+- [ ] ✅ SSH access working for both clouds
+
+**Performance Targets**:
+- AWS-AWS latency: <5ms
+- GCP-GCP latency: <5ms
+- AWS-GCP latency: <100ms
+- All nodes reachable via SSH
+- All nodes can reach each other on TCP port 8080
+
+# Deliverables
+1. scripts/verify_connectivity.sh
+2. ansible/setup_raft_storage.yml
+3. scripts/generate_node_configs.py
+4. scripts/deploy_configs.sh (generated)
+5. scripts/measure_latency.sh
+6. docs/baseline_latency.md (generated)
+7. config/nodes/*.json (5 node configs)
+
+# Success Criteria
+Infrastructure ready for Raft cluster deployment. All connectivity verified, storage configured, ready for Story 1.2 (Raft implementation).

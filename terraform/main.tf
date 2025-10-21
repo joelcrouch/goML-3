@@ -42,29 +42,48 @@ data "aws_ami" "amazon_linux_arm" {
 }
 
 # --- Try to find existing Security Group ---
-data "aws_security_group" "existing" {
-  filter {
-    name   = "group-name"
-    values = [var.aws_security_group_name]
-  }
-}
+#data "aws_security_group" "existing" {
+ # filter {
+ #   name   = "group-name"
+ #   values = [var.aws_security_group_name]
+ # }
+#}
 
 # --- Create Security Group only if missing ---
 resource "aws_security_group" "multi_cloud_sg_aws" {
-  count         = length(try(data.aws_security_group.existing.id, "")) == 0 ? 1 : 0
-  name          = var.aws_security_group_name
+  name = var.aws_security_group_name
   description   = "Security group for multi-cloud experiment (AWS)"
 
   # SSH, App Port, and ICMP Ingress rules
-  ingress { from_port = 22; to_port = 22; protocol = "tcp"; cidr_blocks = ["0.0.0.0/0"] }
-  ingress { from_port = var.app_port; to_port = var.app_port; protocol = "tcp"; cidr_blocks = ["0.0.0.0/0"] }
-  ingress { from_port = -1; to_port = -1; protocol = "icmp"; cidr_blocks = ["0.0.0.0/0"] }
+  ingress { 
+    from_port = 22
+    to_port = 22
+    protocol = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] 
+  }
+  ingress { 
+    from_port = var.app_port
+    to_port = var.app_port
+    protocol = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress { 
+    from_port = -1
+    to_port = -1
+    protocol = "icmp"
+    cidr_blocks = ["0.0.0.0/0"] 
+  }
 
   # All Outbound traffic allowed
-  egress { from_port = 0; to_port = 0; protocol = "-1"; cidr_blocks = ["0.0.0.0/0"] }
+  egress { 
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = ["0.0.0.0/0"] 
+  }
 
   tags = {
-    Name    = "${var.aws_security_group_name}"
+    Name    = var.aws_security_group_name
     Project = "MultiCloudDistSys"
     Cloud   = "AWS"
   }
@@ -72,10 +91,18 @@ resource "aws_security_group" "multi_cloud_sg_aws" {
 
 # --- Select SG dynamically ---
 locals {
-  aws_sg_id = length(try(data.aws_security_group.existing.id, "")) > 0 ?
-    data.aws_security_group.existing.id :
-    aws_security_group.multi_cloud_sg_aws[0].id
+  aws_sg_id = aws_security_group.multi_cloud_sg_aws.id
 }
+#locals {
+ # aws_sg_id = length(try(data.aws_security_group.existing.id, "")) > 0 ?
+ #   data.aws_security_group.existing.id :
+ #   aws_security_group.multi_cloud_sg_aws[0].id
+#}
+#l#ocals 
+  #aws_sg_id = length(try(data.aws_security_group.existing.id,
+#"")) > 0 ? data.aws_security_group.existing.id : aws_security_group.multi_cloud_sg_aws[0].id
+
+
 
 # --- AWS User Data Script ---
 locals {
@@ -103,7 +130,7 @@ resource "aws_instance" "multi_cloud_node_aws" {
   tags = {
     Project = "MultiCloudDistSys"
     Name    = "MultiCloudNode-AWS-${count.index + 1}"
-    Tier    = "Raft"
+    Tier    = "raft"
   }
 }
 
@@ -163,12 +190,14 @@ resource "google_compute_instance" "multi_cloud_node_gcp" {
 
   metadata = {
     startup-script = local.gcp_startup_script
+    ssh-keys       = "${var.gcp_user_name}:${file("~/.ssh/${var.key_name}.pub")}"
   }
 
   labels = {
     project = "multi-cloud-distsys"
-    tier    = "Raft"
+    tier    = "raft"
   }
+}
 
 # -----------------------------------------------------------------------------
 # Ansible Provisioning (Local Execution)
@@ -181,38 +210,34 @@ resource "null_resource" "run_ansible_provisioning" {
     aws_ips = join(",", aws_instance.multi_cloud_node_aws[*].public_ip)
     gcp_ips = join(",", google_compute_instance.multi_cloud_node_gcp[*].network_interface[0].access_config[0].nat_ip)
   }
+provisioner "local-exec" {
+  command = <<-EOT
+    echo "--- Generating Ansible Inventory (inventory.ini) ---"
 
-  provisioner "local-exec" {
-    command = <<EOT
-      echo "--- Generating Ansible Inventory (inventory.ini) ---"
+    cat > inventory.ini <<-INVENTORY
+    [aws]
+    ${join("\n", aws_instance.multi_cloud_node_aws[*].public_ip)}
 
-      # 1. Capture IPs into JSON file
-      terraform output -json > terraform_outputs.json
+    [gcp]
+    ${join("\n", google_compute_instance.multi_cloud_node_gcp[*].network_interface[0].access_config[0].nat_ip)}
 
-      # 2. Start inventory file
-      echo "[aws]" > inventory.ini
-      jq -r '.aws_instance_public_ips.value[]' terraform_outputs.json >> inventory.ini
-      
-      echo "\n[gcp]" >> inventory.ini
-      jq -r '.gcp_instance_public_ips.value[]' terraform_outputs.json >> inventory.ini
+    [aws:vars]
+    ansible_user = ec2-user
 
-      # 3. Define group-specific variables (CRITICAL for multi-cloud SSH)
-      echo "\n[aws:vars]" >> inventory.ini
-      echo "ansible_user=ec2-user" >> inventory.ini
-      
-      echo "\n[gcp:vars]" >> inventory.ini
-      # Pass the GCP user name from Terraform variable to Ansible inventory
-      echo "ansible_user=${var.gcp_user_name}" >> inventory.ini 
+    [gcp:vars]
+    ansible_user = ${var.gcp_user_name}
 
-      # 4. Define global SSH configuration
-      echo "\n[all:vars]" >> inventory.ini
-      echo "ansible_ssh_private_key_file=~/.ssh/${var.key_name}.pem" >> inventory.ini
+    [all:vars]
+    ansible_ssh_private_key_file = ~/.ssh/${var.key_name}.pem
+    INVENTORY
 
-      echo "--- Running Ansible Playbook (setup.yml) ---"
-      # ANSIBLE_HOST_KEY_CHECKING=False is necessary for fresh instances
-      ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini setup.yml --extra-vars "app_repo=${var.project_repo}"
-    EOT
-  }
+    echo "--- Running Ansible Playbook ---"
+    # Set a remote temp directory for Ansible and run the playbook
+    ANSIBLE_REMOTE_TMP=/tmp ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
+      -i inventory.ini ../ansible/setup_raft_storage.yml \
+      --extra-vars "app_repo=${var.project_repo}"
+  EOT
+}
 
   depends_on = [
     aws_instance.multi_cloud_node_aws,
